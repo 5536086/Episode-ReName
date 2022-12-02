@@ -8,7 +8,16 @@ import time
 from datetime import datetime
 from itertools import product
 
-from loguru import logger
+try:
+    from loguru import logger
+except:
+    # 兼容无loguru模块的环境，例如docker和群晖
+    class logger:
+        def info(s):
+            print(f'| INFO     | {s}')
+
+        def warning(s):
+            print(f'| WARNING  | {s}')
 
 #     应该能解析出大部分的命名规则了
 # ''')
@@ -80,6 +89,7 @@ if len(sys.argv) > 1 and not sys.argv[1].startswith('-'):
         logger.info(f"{'rename_delay', rename_delay}")
     name_format = 'S{season}E{ep}'
     force_rename = 0
+    custom_replace_pair = ""
 else:
     # 新的argparse解析
     # python EpisodeReName.py --path E:\test\极端试验样本\S1 --delay 1 --overwrite 1
@@ -88,15 +98,19 @@ else:
 
     ap = argparse.ArgumentParser()
     ap.add_argument('--path', required=True, help='目标路径')
-    ap.add_argument('--delay', required=False, help='重命名延迟(秒) 配合qb使用的参数, 默认为0秒不等待', type=int, default=0)
-    ap.add_argument('--overwrite', required=False, help='强制重命名, 默认为1开启覆盖模式, 0为不覆盖, 遇到同名文件会跳过, 结果输出到error.txt', type=int,
+    ap.add_argument('--delay', required=False, help='重命名延迟(秒) 配合qb使用的参数, 默认为0秒不等待', type=int,
+                    default=0)
+    ap.add_argument('--overwrite', required=False,
+                    help='强制重命名, 默认为1开启覆盖模式, 0为不覆盖, 遇到同名文件会跳过, 结果输出到error.txt',
+                    type=int,
                     default=1)
     ap.add_argument('--name_format', required=False,
                     help='(慎用) 自定义重命名格式, 参数需要加引号 默认为 "S{season}E{ep}" 可以选择性加入 系列名称如 "{series} - S{season}E{ep}" ',
                     default='S{season}E{ep}')
-    ap.add_argument('--force_rename', required=False, help='(慎用) 即使已经是标准命名, 也强制重新改名, 默认为0不开启, 1是开启', type=int,
+    ap.add_argument('--force_rename', required=False,
+                    help='(慎用) 即使已经是标准命名, 也强制重新改名, 默认为0不开启, 1是开启', type=int,
                     default=0)
-    ap.add_argument('--replace', type=str, nargs='+', action='append',
+    ap.add_argument('--replace', required=False, type=str, nargs='+', action='append',
                     help='自定义替换关键字, 一般是给字幕用, 用法 `--replace chs chi --replace cht chi` 就能把chs和cht替换成chi, 可以写多组关键字',
                     default=[])
 
@@ -232,8 +246,8 @@ def get_season(parent_folder_name):
         return '0'
 
     try:
-        if 'season ' in parent_folder_name.lower():
-            s = str(int(parent_folder_name.lower().replace('season ', '').strip()))
+        if 'season' in parent_folder_name.lower():
+            s = str(int(parent_folder_name.lower().replace('season', '').strip()))
             season = s.zfill(2)
         elif parent_folder_name.lower()[0] == 's':
             season = str(int(parent_folder_name[1:])).strip().zfill(2)
@@ -373,7 +387,7 @@ def get_season_and_ep(file_path):
         # 兼容v2命名
         '(\d{1,4}(\.5)?)[Vv]?\d?',
         # 兼容END命名
-        '(\d{1,4}(\.5)?)\s?(?i:END)?',
+        '(\d{1,4}(\.5)?)\s?(?:_)?(?i:END)?',
     ]
     # 括号和内容组合起来
     pats = []
@@ -479,7 +493,7 @@ def get_season_and_ep(file_path):
                 return ep
 
             # 兼容END命名
-            pat = '(\d{1,4}(\.5)?)\s?(?i:END)?'
+            pat = '(\d{1,4}(\.5)?)\s?(?:_)?(?i:END)?'
             ep = None
             res_sub = re.search(pat, s)
             if res_sub:
@@ -523,22 +537,23 @@ def get_season_path(file_path):
 
 def ep_offset_patch(file_path, ep):
     # 多季集数修正
+    # 20220721 修改集数修正修正规则：可以用 + - 符号标记修正数值, 表达更直观
     b = os.path.dirname(file_path.replace('\\', '/'))
-    offset = None
+    offset_str = None
     while (b):
-        if offset:
+        if offset_str:
             break
         if not '/' in b:
             break
         b, fo = b.rsplit('/', 1)
-        offset = None
+        offset_str = None
         if get_season(fo):
             try:
                 for fn in os.listdir(b + '/' + fo):
                     if fn.lower() != 'all.txt':
                         continue
                     with open(b + '/' + fo + '/' + fn, encoding='utf-8') as f:
-                        offset = int(f.read().strip())
+                        offset_str = f.read()
                         break
             except Exception as e:
                 logger.info(f"{'集数修正报错了', e}")
@@ -546,7 +561,7 @@ def ep_offset_patch(file_path, ep):
     # 没有找到all.txt 尝试寻找qb-rss-manager的配置文件
     # 1. config_ern.json 配置
     # 2. 这两个exe在同一个目录下, 直接读取配置
-    if not offset:
+    if not offset_str:
         qrm_config = None
         config_ern_path_tmp = os.path.join(application_path, 'config_ern.json')
         config_path_tmp = os.path.join(application_path, 'config.json')
@@ -570,26 +585,50 @@ def ep_offset_patch(file_path, ep):
             # logger.info(f"{'file_path', file_path}")
             season_path = get_season_path(file_path)
             # logger.info(f"{'season_path', season_path}")
-            for x in qrm_config['data_list']:
-                if format_path(x[5]) == format_path(season_path):
-                    if x[4]:
-                        try:
-                            offset = int(x[4])
-                            logger.info(f"{'QRM获取到offset', offset}")
-                        except:
-                            pass
+            if 'data_list' in qrm_config:
+                logger.info('检测到 qb-rss-manager 的 旧版 格式数据')
+                for x in qrm_config['data_list']:
+                    if format_path(x[5]) == format_path(season_path):
+                        if x[4]:
+                            try:
+                                offset_str = x[4]
+                                logger.info(f"{'QRM获取到 offset_str', offset_str}")
+                            except:
+                                pass
+            else:
+                logger.info('检测到 qb-rss-manager 的 v1 格式数据')
+                for data_group in qrm_config['data_dump']['data_groups']:
+                    for x in data_group['data']:
+                        if format_path(x['savePath']) == format_path(season_path):
+                            if x['rename_offset']:
+                                try:
+                                    offset_str = x['rename_offset']
+                                    logger.info(f"{'QRM获取到 offset_str', offset_str}")
+                                except:
+                                    pass
+    # 集数修正
+    if offset_str:
+        try:
+            offset_str = offset_str.strip().replace(' ', '')
+            if offset_str[0] in ['+', '-']:
+                # 如果有 + - 号做标记 说明要减去负数
+                offset = - int(offset_str)
+            else:
+                # 没有标记 直接减掉这个数
+                offset = int(offset_str)
 
-    if offset:
-        if '.' in ep:
-            ep_int, ep_tail = ep.split('.')
-            ep_int = int(ep_int)
-            if int(ep_int) >= offset:
-                ep_int = ep_int - offset
-                ep = str(ep_int) + '.' + ep_tail
-        else:
-            ep_int = int(ep)
-            if ep_int >= offset:
-                ep = str(ep_int - offset)
+            if '.' in ep:
+                ep_int, ep_tail = ep.split('.')
+                ep_int = int(ep_int)
+                if int(ep_int) >= offset:
+                    ep_int = ep_int - offset
+                    ep = str(ep_int) + '.' + ep_tail
+            else:
+                ep_int = int(ep)
+                if ep_int >= offset:
+                    ep = str(ep_int - offset)
+        except:
+            return ep
 
     return zero_fix(ep)
 
@@ -720,7 +759,8 @@ for old, new in file_lists:
     if not rename_overwrite:
         # 如果设置不覆盖 遇到已存在的目标文件不强制删除 只记录错误
         if os.path.exists(new):
-            error_logs.append(f'{datetime.now().strftime("%Y-%m-%d %H:%M:%S")} 重命名 {old} 失败, 目标文件 {new} 已经存在')
+            error_logs.append(
+                f'{datetime.now().strftime("%Y-%m-%d %H:%M:%S")} 重命名 {old} 失败, 目标文件 {new} 已经存在')
             continue
 
     # 默认遇到文件存在则强制删除已存在文件

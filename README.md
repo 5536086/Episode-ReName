@@ -2,7 +2,8 @@
 
 [懒人包下载](https://github.com/Nriver/qb-rss-manager/tree/main/aio)
 
-电视剧/番剧自动化重命名工具. 本工具可以对大部分资源进行重命名处理. 主要是给资源重命名后给Emby, Jellyfin, Tiny Media Manager 等软件刮削数据使用. 也可以配合qbitorrent下载文件后自动重命名,
+电视剧/番剧自动化重命名工具. 本工具可以对大部分资源进行重命名处理. 主要是给资源重命名后给Emby, Jellyfin, Tiny Media
+Manager 等软件刮削数据使用. 也可以配合qbitorrent下载文件后自动重命名,
 具体使用方法请看下面的说明.
 
 注意0: 本工具是**命令行**工具, 没有界面, 没有界面, 没有界面, 不要问我为什么双击exe没有反应!
@@ -23,17 +24,20 @@
 * [Episode-ReName](#episode-rename)
 * [目录](#目录)
 * [使用场景1 - 右键菜单调用](#使用场景1---右键菜单调用)
-* [使用场景2 - qbitorrent下载后自动重命名](#使用场景2---qbitorrent下载后自动重命名)
-* [使用场景3 - windows命令行运行](#使用场景3---windows命令行运行)
+* [使用场景2 - windows的qbitorrent下载后自动重命名](#使用场景2---windows的qbitorrent下载后自动重命名)
+* [使用场景3 - 群晖套件版qbittorrent下载后自动重命名](#使用场景3---群晖套件版qbittorrent下载后自动重命名)
+* [使用场景4 - docker版qbittorrent下载后自动重命名](#使用场景4---docker版qbittorrent下载后自动重命名)
+* [使用场景5 - windows命令行运行](#使用场景5---windows命令行运行)
     * [简易参数模式](#简易参数模式)
     * [复杂参数模式](#复杂参数模式)
-* [使用场景4 - Linux终端运行](#使用场景4---linux终端运行)
+* [使用场景6 - Linux终端运行](#使用场景6---linux终端运行)
 * [脚本编译成可执行程序](#脚本编译成可执行程序)
 * [强制的规范元数据结构](#强制的规范元数据结构)
 * [工具主要功能和处理逻辑](#工具主要功能和处理逻辑)
 * [主要文件说明](#主要文件说明)
 * [多季番剧tmdb集数适配](#多季番剧tmdb集数适配)
 * [Stargazers 数据](#stargazers-数据)
+* [捐赠](#捐赠)
 * [感谢](#感谢)
 
 <!--te-->
@@ -45,17 +49,17 @@
 1. 从[Release](https://github.com/Nriver/Episode-ReName/releases)直接下载最新的exe程序
 2. 修改 右键菜单 添加.reg 的exe路径并导入注册表
 
-![添加注册表](./doc/添加注册表.gif)
+![添加注册表](docs/添加注册表.gif)
 
 3. 找到要重命名的文件/文件夹, 右键点击"自动剧集命名".
 
-![右键重命名](./doc/右键重命名.gif)
+![右键重命名](docs/右键重命名.gif)
 
 注：可以多选进行批量操作. win10多选超过15个, 右键菜单会消失, 可以运行`win10 右键多文件限制修改.reg`将限制修改成999个.
 
-# 使用场景2 - qbitorrent下载后自动重命名
+# 使用场景2 - windows的qbitorrent下载后自动重命名
 
-![qb下载自动重命名](./doc/qb下载自动重命名.gif)
+![qb下载自动重命名](docs/qb下载自动重命名.gif)
 
 可以在qbittorrent 中进行设置, 实现下载完成后自动重命名
 
@@ -80,7 +84,53 @@ D:\Test\EpisodeReName.exe --path "%D" --delay 15 --overwrite 1
 
 具体参数请看下面的`复杂参数模式`章节
 
-# 使用场景3 - windows命令行运行
+# 使用场景3 - 群晖套件版qbittorrent下载后自动重命名
+
+1. 群晖需要安装qbittorrent套件和python3套件
+2. 群晖的qb使用的是admin账户, 请将`EpisodeReName.py`和`custom_rules.py`放到群晖File Station的`homes/admin`
+   目录下, 或者手动通过ssh上传到`/var/services/homes/admin`目录 或 `/volume1/homes/admin`目录
+3. 设置下载后自动运行改名，修改qb配置: `下载` 勾选 `Torrent 完成时运行外部程序`,
+   下面填上
+
+```
+/usr/local/bin/python3 /var/services/homes/admin/EpisodeReName.py --path "%D" --delay 15 --overwrite 1
+```
+
+4. 取消做种，修改qb配置: `BitTorrent` 的 `做种限制` 改成 当分享率达到0，当做种时间达到0分钟然后暂停torrent
+
+# 使用场景4 - docker版qbittorrent下载后自动重命名
+
+测试了以下三个镜像 `linuxserver/qbittorrent`, `superng6/qbittorrentee`, `johngong/qbittorrent`, 其它镜像操作也是类似的
+
+1. 下载 `EpisodeReName.py`和`custom_rules.py` 到docker的宿主机上
+2. 复制到docker容器里，这里以从宿主机复制到docker容器根目录 `/` 为例
+
+linuxserver和johngong用这个命令复制
+
+```
+docker cp EpisodeReName.py qbittorrent:/
+docker cp custom_rules.py qbittorrent:/
+```
+
+superng6的容器名字要改成qbittorrentee
+
+```
+docker cp EpisodeReName.py qbittorrentee:/
+docker cp custom_rules.py qbittorrentee:/
+```
+
+3. 设置下载后自动运行改名，修改qb配置: `下载` 勾选 `Torrent 完成时运行外部程序`,
+   下面填上
+
+```
+python3 /EpisodeReName.py --path "%D" --delay 15 --overwrite 1
+```
+
+4. 取消做种，修改qb配置: `BitTorrent` 的 `做种限制` 改成 当分享率达到0，当做种时间达到0分钟然后暂停torrent
+
+注: 以上方法写入的文件在更新镜像后可能会被删除，你可以把py文件放到你自己映射的下载目录里，改好对应的路径就行
+
+# 使用场景5 - windows命令行运行
 
 ## 简易参数模式
 
@@ -90,7 +140,8 @@ D:\Test\EpisodeReName.exe --path "%D" --delay 15 --overwrite 1
 D:\Test\EpisodeReName.exe "D:\我的番剧\XXX\Season 1"
 ```
 
-可以传入第二个参数, 作为重命名的延迟. 这个参数主要是配合qbitorrent使用, 避免qb锁定文件导致重命名失败. 一般停止做种15秒后在操作能确保文件被释放.
+可以传入第二个参数, 作为重命名的延迟. 这个参数主要是配合qbitorrent使用, 避免qb锁定文件导致重命名失败.
+一般停止做种15秒后在操作能确保文件被释放.
 
 ```
 D:\Test\EpisodeReName.exe "D:\我的番剧\XXX\Season 1" 15
@@ -123,7 +174,7 @@ D:\Test\EpisodeReName.exe -h
                         (慎用) 即使已经是标准命名, 也强制重新改名, 默认为0不开启, 1是开启
 ```
 
-# 使用场景4 - Linux终端运行
+# 使用场景6 - Linux终端运行
 
 本程序支持在linux中运行, 需要python3运行环境
 
@@ -201,7 +252,8 @@ pyinstaller -F -w EpisodeReName.py
 
 对于有多季的番剧, 比如鬼灭之刃28集, 在tmdb里没有第28集, 而是第2季第2集, 要正确削刮需要从S02E28改成S02E02.
 
-这时候可以在鬼灭之刃的`Season 2`文件夹中添加一个`all.txt`文件, 里面写上一个数字, 会在自动重命名的时候减掉这个数字. 比如上面的例子就需要在`all.txt`填入26, 自动重命名就会把S02E28改成S02E02,
+这时候可以在鬼灭之刃的`Season 2`文件夹中添加一个`all.txt`文件, 里面写上一个数字, 会在自动重命名的时候减掉这个数字.
+比如上面的例子就需要在`all.txt`填入26, 自动重命名就会把S02E28改成S02E02,
 这样就能正常削刮了.
 
 ---
@@ -210,11 +262,34 @@ pyinstaller -F -w EpisodeReName.py
 
 统计图使用 [caarlos0/starcharts](https://github.com/caarlos0/starcharts) 项目生成.
 
-[![Stargazers over time](https://starchart.cc/Nriver/trilium-translation.svg)](https://starchart.cc/Nriver/trilium-translation)
+[![Stargazers over time](https://starchart.cc/Nriver/Episode-ReName.svg)](https://starchart.cc/Nriver/Episode-ReName)
+
+---
+
+# 捐赠
+
+如果你觉得我做的程序对你有帮助, 欢迎捐赠, 这对我来说是莫大的鼓励!
+
+支付宝:  
+![Alipay](docs/alipay.png)
+
+微信:  
+![Wechat Pay](docs/wechat_pay.png)
+
+---
 
 # 感谢
 
-感谢某位不愿意透露姓名的朋友
+感谢某位不愿意透露姓名的朋友, 没有他的帮助, 就没有这个工具的诞生.
 
+感谢 `J*s` 赞助的50元!
 
+感谢 `**莲` 赞助的10元!
 
+感谢 `**楷` 赞助的5元!
+
+感谢 `*睿` 赞助的5元! 备注: 感谢您的自动命名工具
+
+感谢Jetbrins公司提供的Pycharm编辑器!
+
+[![Jetbrains](docs/jetbrains.svg)](https://jb.gg/OpenSource)
